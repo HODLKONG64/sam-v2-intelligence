@@ -1,7 +1,12 @@
 {
   "completeness": 0.25,
   "consistency": 0.25,
-  "external": 0.2,
+  "external": 0.20,
   "freshness": 0.15,
-  "depth": 0.15
+  "depth": 0.15,
+  "mention_count": 0.35,
+  "fact_count": 0.25,
+  "confirmed_facts": 0.20,
+  "cross_confirmed": 0.15,
+  "recency": 0.05
 }
