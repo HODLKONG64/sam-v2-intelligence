@@ -67,6 +67,111 @@
       margin-bottom: 20px;
       color: #7df9a7;
     }
+
+    /* Focus Plan Panel */
+    .focus-panel {
+      background: #15151d;
+      border: 1px solid #2a2a35;
+      border-radius: 14px;
+      padding: 20px;
+      margin-top: 28px;
+    }
+    .focus-panel h2 {
+      margin: 0 0 16px;
+      font-size: 22px;
+      color: #fff;
+    }
+    .focus-section {
+      margin-bottom: 18px;
+    }
+    .focus-section h3 {
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .focus-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tag {
+      display: inline-block;
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .tag-target {
+      background: rgba(255, 80, 80, 0.18);
+      border: 1px solid rgba(255, 80, 80, 0.45);
+      color: #ff9090;
+    }
+    .tag-complete {
+      background: rgba(76, 175, 80, 0.15);
+      border: 1px solid rgba(76, 175, 80, 0.4);
+      color: #7df9a7;
+    }
+    .tag-stable {
+      background: rgba(180, 180, 200, 0.08);
+      border: 1px solid rgba(180, 180, 200, 0.2);
+      color: #a0a0b8;
+    }
+    .focus-stats {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+    .focus-stat {
+      background: #101018;
+      border: 1px solid #222230;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 13px;
+      color: #cfcfcf;
+    }
+    .focus-stat strong {
+      font-size: 20px;
+      color: #fff;
+      display: block;
+    }
+
+    /* Keyword Bank */
+    .kw-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 7px;
+    }
+    .kw-label {
+      width: 160px;
+      font-size: 13px;
+      color: #cfcfcf;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .kw-bar {
+      flex: 1;
+      height: 10px;
+      background: #23283b;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .kw-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #00ffd0, #1ea7ff);
+    }
+    .kw-score {
+      width: 30px;
+      text-align: right;
+      font-size: 12px;
+      color: #7df9a7;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -75,6 +180,30 @@
     <p>Real-time entity ranking from your local SAM API.</p>
     <div class="status" id="status">Loading...</div>
     <div id="board"></div>
+
+    <!-- Focus Plan Panel -->
+    <div class="focus-panel">
+      <h2>⚡ Focus Plan</h2>
+      <div class="focus-stats" id="focus-stats">Loading focus plan...</div>
+      <div class="focus-section">
+        <h3 style="color:#ff9090;">🎯 Targets — needs attention now</h3>
+        <div class="focus-tags" id="focus-targets"></div>
+      </div>
+      <div class="focus-section">
+        <h3 style="color:#7df9a7;">✅ Complete — high coverage</h3>
+        <div class="focus-tags" id="focus-complete"></div>
+      </div>
+      <div class="focus-section">
+        <h3 style="color:#a0a0b8;">💤 Stable — skip this cycle</h3>
+        <div class="focus-tags" id="focus-stable"></div>
+      </div>
+    </div>
+
+    <!-- Keyword Bank Panel -->
+    <div class="focus-panel" style="margin-top:18px;">
+      <h2>🔑 Keyword Bank</h2>
+      <div id="keyword-bank">Loading keywords...</div>
+    </div>
   </div>
 
   <script>
@@ -113,6 +242,61 @@
 
     loadBoard();
     setInterval(loadBoard, 5000);
+
+    async function loadFocusPlan() {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/focus-plan");
+        const plan = await res.json();
+        const stats = plan.stats || {};
+
+        document.getElementById("focus-stats").innerHTML = `
+          <div class="focus-stat"><strong>${stats.total || 0}</strong>Total</div>
+          <div class="focus-stat"><strong style="color:#ff9090;">${stats.target_count || 0}</strong>Targets</div>
+          <div class="focus-stat"><strong style="color:#a0a0b8;">${stats.stable_count || 0}</strong>Stable</div>
+          <div class="focus-stat"><strong style="color:#7df9a7;">${stats.complete_count || 0}</strong>Complete</div>
+        `;
+
+        const renderTags = (names, cls) =>
+          names.length
+            ? names.map(n => `<span class="tag ${cls}">${n}</span>`).join("")
+            : `<span style="color:#555;font-size:13px;">—</span>`;
+
+        document.getElementById("focus-targets").innerHTML = renderTags(plan.targets || [], "tag-target");
+        document.getElementById("focus-complete").innerHTML = renderTags(plan.complete || [], "tag-complete");
+        document.getElementById("focus-stable").innerHTML = renderTags(plan.stable || [], "tag-stable");
+      } catch (err) {
+        document.getElementById("focus-stats").textContent = "Focus plan unavailable";
+      }
+    }
+
+    async function loadKeywordBank() {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/keyword-bank");
+        const data = await res.json();
+        const keywords = (data.keywords || []).slice(0, 20);
+
+        if (!keywords.length) {
+          document.getElementById("keyword-bank").innerHTML =
+            '<span style="color:#555;font-size:13px;">No keywords tracked yet.</span>';
+          return;
+        }
+
+        document.getElementById("keyword-bank").innerHTML = keywords.map(kw => `
+          <div class="kw-bar-row">
+            <div class="kw-label" title="${kw.term}">${kw.term}</div>
+            <div class="kw-bar"><div class="kw-fill" style="width:${kw.score}%;"></div></div>
+            <div class="kw-score">${kw.score}</div>
+          </div>
+        `).join("") + `<div style="font-size:12px;color:#555;margin-top:8px;">Total keywords: ${data.total}</div>`;
+      } catch (err) {
+        document.getElementById("keyword-bank").textContent = "Keyword bank unavailable";
+      }
+    }
+
+    loadFocusPlan();
+    loadKeywordBank();
+    setInterval(loadFocusPlan, 10000);
+    setInterval(loadKeywordBank, 10000);
   </script>
 </body>
 </html>

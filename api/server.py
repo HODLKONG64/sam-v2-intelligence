@@ -1,10 +1,19 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from typing import List, Optional
 import json
 import os
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MEMORY_FILE = "memory/memory.json"
 
@@ -575,6 +584,114 @@ def delete_entry(name: str):
 
 @app.post("/reset-live-entries")
 def reset_live_entries():
+    data = load_memory()
+    entities = data.get("entities", {})
+
+    keep = {}
+    removed = 0
+
+    for name, entry in entities.items():
+      if entry.get("is_live_submission"):
+          removed += 1
+      else:
+          keep[name] = entry
+
+    data["entities"] = keep
+    save_memory(data)
+
+    return {"reset": True, "removed": removed, "message": f"Removed {removed} live entries"}
+
+
+class SandboxSubmission(BaseModel):
+    entity: str
+    facts: List[dict]
+    sources: List[str]
+    submitted_by: Optional[str] = "external_bot"
+    timestamp: Optional[str] = None
+
+
+@app.get("/focus-plan")
+async def get_focus_plan():
+    """
+    Returns TARGETS/STABLE/COMPLETE classification for all entities.
+    v1 SAM calls this at the start of each cycle to know which entities to process.
+    """
+    from memory.memory_manager import load_memory
+    from core.overmind import Overmind
+    from intelligence.scoring_engine import score_entity
+
+    memory = load_memory()
+    entities = memory.get("entities", {})
+
+    # Ensure all entities have current scores
+    scored = {}
+    for name, data in entities.items():
+        if "score" not in data:
+            data["score"] = score_entity(data)
+        scored[name] = data
+
+    overmind = Overmind()
+    plan = overmind.analyse(scored)
+    return plan
+
+
+@app.get("/keyword-bank")
+async def get_keyword_bank():
+    """Returns full keyword bank sorted by score descending."""
+    from memory.memory_manager import load_memory, get_active_keywords
+    memory = load_memory()
+    return {
+        "keywords": get_active_keywords(memory, min_score=0),
+        "total": len(memory.get("keyword_bank", {}))
+    }
+
+
+@app.get("/bibles/{entity_name}")
+async def get_bible(entity_name: str):
+    """Returns the specialist bible JSON for an entity. 404 if below threshold."""
+    import re
+    from fastapi import HTTPException
+    from memory.memory_manager import load_memory
+
+    memory = load_memory()
+    slug = re.sub(r'[^a-z0-9-]', '-', entity_name.lower()).strip('-')
+    bible = memory.get("bibles", {}).get(slug)
+    if not bible:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No bible found for '{entity_name}'. Entity may have fewer than 5 mentions."
+        )
+    return bible
+
+
+@app.post("/sandbox/submit")
+async def submit_to_sandbox(submission: SandboxSubmission):
+    """
+    External bots submit facts here. They go into sandbox/incoming/
+    for validation before entering real memory.
+    Enforces: 2+ unique sources, 1+ credible domain.
+    """
+    import uuid
+    from datetime import datetime
+
+    os.makedirs("sandbox/incoming", exist_ok=True)
+
+    submission_id = str(uuid.uuid4())
+    data = submission.dict()
+    data["submission_id"] = submission_id
+    data["received_at"] = datetime.utcnow().isoformat()
+    data["status"] = "PENDING"
+
+    with open(f"sandbox/incoming/{submission_id}.json", "w") as f:
+        json.dump(data, f, indent=2)
+
+    return {
+        "submission_id": submission_id,
+        "status": "PENDING",
+        "message": "Submission received. Will be validated before entering memory.",
+        "entity": submission.entity
+    }
+
     data = load_memory()
     entities = data.get("entities", {})
 
