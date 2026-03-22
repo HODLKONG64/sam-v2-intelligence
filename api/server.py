@@ -1,8 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from typing import List
 import json
 import os
+import re
+import uuid
+
+from memory.memory_manager import load_memory as mm_load_memory, get_active_keywords
+from core.overmind import Overmind
 
 app = FastAPI()
 
@@ -11,6 +17,13 @@ MEMORY_FILE = "memory/memory.json"
 
 class EvaluateInput(BaseModel):
     text: str
+
+
+class SandboxSubmission(BaseModel):
+    entity: str
+    facts: List[dict]
+    sources: List[str]
+    submitted_by: str = "external_bot"
 
 
 def load_memory():
@@ -385,6 +398,30 @@ HTML_PAGE = '''
         <div><span class="dot" style="background:#a93ad8;"></span>Depth</div>
       </div>
     </div>
+
+    <div class="panel" style="margin-top:24px;">
+      <h2>Focus Plan <span style="font-size:14px;color:#aab0bc;font-weight:normal;">— Overmind classification</span></h2>
+      <div id="focus-summary" style="color:#aab0bc;font-size:14px;margin-bottom:14px;">Loading...</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;" id="focus-cols">
+        <div>
+          <div style="font-weight:bold;color:#ff6b35;margin-bottom:8px;">🎯 TARGETS</div>
+          <div id="focus-targets" style="font-size:14px;color:#f5f5f5;"></div>
+        </div>
+        <div>
+          <div style="font-weight:bold;color:#aab0bc;margin-bottom:8px;">⏸ STABLE</div>
+          <div id="focus-stable" style="font-size:14px;color:#aab0bc;"></div>
+        </div>
+        <div>
+          <div style="font-weight:bold;color:#4caf50;margin-bottom:8px;">✅ COMPLETE</div>
+          <div id="focus-complete" style="font-size:14px;color:#4caf50;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:24px;">
+      <h2>Keyword Bank <span style="font-size:14px;color:#aab0bc;font-weight:normal;">— active search terms</span></h2>
+      <div id="keyword-bank-list">Loading...</div>
+    </div>
   </div>
 
   <script>
@@ -486,6 +523,51 @@ HTML_PAGE = '''
 
     loadBoard();
     setInterval(loadBoard, 2000);
+
+    async function loadFocusPlan() {
+      try {
+        const res = await fetch("/focus-plan");
+        const data = await res.json();
+        const total = data.total_entities || 0;
+        const targetCount = data.target_count || 0;
+        document.getElementById("focus-summary").textContent =
+          "Total entities: " + total + " | Targets: " + targetCount + " | Stable: " + (data.stable || []).length + " | Complete: " + (data.complete || []).length;
+        document.getElementById("focus-targets").innerHTML =
+          (data.targets || []).map(n => '<div style="padding:4px 0;border-bottom:1px solid #1e1e2e;">' + n + '</div>').join("") || '<div style="color:#555;">None</div>';
+        document.getElementById("focus-stable").innerHTML =
+          (data.stable || []).map(n => '<div style="padding:4px 0;border-bottom:1px solid #1e1e2e;">' + n + '</div>').join("") || '<div style="color:#555;">None</div>';
+        document.getElementById("focus-complete").innerHTML =
+          (data.complete || []).map(n => '<div style="padding:4px 0;border-bottom:1px solid #1e1e2e;">' + n + '</div>').join("") || '<div style="color:#555;">None</div>';
+      } catch (e) {
+        document.getElementById("focus-summary").textContent = "Focus plan unavailable";
+      }
+    }
+
+    async function loadKeywordBank() {
+      try {
+        const res = await fetch("/keyword-bank");
+        const data = await res.json();
+        const keywords = data.keywords || [];
+        if (!keywords.length) {
+          document.getElementById("keyword-bank-list").innerHTML = '<div style="color:#555;font-size:14px;">No active keywords yet.</div>';
+          return;
+        }
+        document.getElementById("keyword-bank-list").innerHTML = keywords.map(k =>
+          '<div style="margin-bottom:10px;">' +
+          '<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;">' +
+          '<span>' + k.term + '</span><span style="color:#00ffd0;font-weight:bold;">' + k.score + '</span></div>' +
+          '<div style="width:100%;height:8px;background:#23283b;border-radius:999px;overflow:hidden;">' +
+          '<div style="height:100%;width:' + k.score + '%;background:linear-gradient(90deg,#00ffd0,#1ea7ff);border-radius:999px;"></div></div></div>'
+        ).join("");
+      } catch (e) {
+        document.getElementById("keyword-bank-list").innerHTML = '<div style="color:#555;font-size:14px;">Keyword bank unavailable.</div>';
+      }
+    }
+
+    loadFocusPlan();
+    loadKeywordBank();
+    setInterval(loadFocusPlan, 30000);
+    setInterval(loadKeywordBank, 30000);
   </script>
 </body>
 </html>
@@ -591,3 +673,38 @@ def reset_live_entries():
     save_memory(data)
 
     return {"reset": True, "removed": removed, "message": f"Removed {removed} live entries"}
+
+
+@app.get("/focus-plan")
+async def focus_plan():
+    memory = mm_load_memory()
+    overmind = Overmind()
+    plan = overmind.analyse(memory)
+    return plan
+
+
+@app.get("/keyword-bank")
+async def keyword_bank():
+    memory = mm_load_memory()
+    keywords = get_active_keywords(memory)
+    return {"keywords": keywords, "count": len(keywords)}
+
+
+@app.get("/bibles/{entity_name}")
+async def get_bible(entity_name: str):
+    memory = mm_load_memory()
+    bibles = memory.get("bibles", {})
+    slug = re.sub(r'[^a-z0-9-]', '-', entity_name.lower()).strip('-')
+    if slug not in bibles:
+        raise HTTPException(status_code=404, detail=f"No bible found for '{entity_name}'. Entity may have fewer than 5 mentions.")
+    return bibles[slug]
+
+
+@app.post("/sandbox/submit")
+async def sandbox_submit(submission: SandboxSubmission):
+    os.makedirs("sandbox/incoming", exist_ok=True)
+    submission_id = str(uuid.uuid4())
+    path = f"sandbox/incoming/{submission_id}.json"
+    with open(path, "w") as f:
+        json.dump(submission.dict(), f, indent=2)
+    return {"submission_id": submission_id, "status": "queued", "message": "Submission accepted for validation"}

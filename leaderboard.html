@@ -67,6 +67,44 @@
       margin-bottom: 20px;
       color: #7df9a7;
     }
+    .panel {
+      background: #15151d;
+      border: 1px solid #2a2a35;
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 22px;
+      color: #fff;
+    }
+    .focus-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+    .kw-bar-wrap {
+      margin-bottom: 10px;
+    }
+    .kw-bar-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    .kw-bar {
+      width: 100%;
+      height: 8px;
+      background: #23283b;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .kw-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #00ffd0, #1ea7ff);
+    }
   </style>
 </head>
 <body>
@@ -75,15 +113,41 @@
     <p>Real-time entity ranking from your local SAM API.</p>
     <div class="status" id="status">Loading...</div>
     <div id="board"></div>
+
+    <div class="panel">
+      <h2>Focus Plan <span style="font-size:14px;color:#aaa;font-weight:normal;">— Overmind classification</span></h2>
+      <div id="focus-summary" style="color:#aaa;font-size:14px;margin-bottom:14px;">Loading...</div>
+      <div class="focus-cols">
+        <div>
+          <div style="font-weight:bold;color:#ff6b35;margin-bottom:8px;">🎯 TARGETS</div>
+          <div id="focus-targets" style="font-size:14px;"></div>
+        </div>
+        <div>
+          <div style="font-weight:bold;color:#aaa;margin-bottom:8px;">⏸ STABLE</div>
+          <div id="focus-stable" style="font-size:14px;color:#aaa;"></div>
+        </div>
+        <div>
+          <div style="font-weight:bold;color:#4caf50;margin-bottom:8px;">✅ COMPLETE</div>
+          <div id="focus-complete" style="font-size:14px;color:#4caf50;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Keyword Bank <span style="font-size:14px;color:#aaa;font-weight:normal;">— active search terms</span></h2>
+      <div id="keyword-bank-list">Loading...</div>
+    </div>
   </div>
 
   <script>
+    const BASE = "http://127.0.0.1:8000";
+
     async function loadBoard() {
       const status = document.getElementById("status");
       const board = document.getElementById("board");
 
       try {
-        const res = await fetch("http://127.0.0.1:8000/leaderboard");
+        const res = await fetch(BASE + "/leaderboard");
         const data = await res.json();
 
         status.textContent = "API live";
@@ -111,8 +175,50 @@
       }
     }
 
+    async function loadFocusPlan() {
+      try {
+        const res = await fetch(BASE + "/focus-plan");
+        const data = await res.json();
+        const total = data.total_entities || 0;
+        const targetCount = data.target_count || 0;
+        document.getElementById("focus-summary").textContent =
+          "Total entities: " + total + " | Targets: " + targetCount + " | Stable: " + (data.stable || []).length + " | Complete: " + (data.complete || []).length;
+        document.getElementById("focus-targets").innerHTML =
+          (data.targets || []).map(n => '<div style="padding:4px 0;border-bottom:1px solid #1e1e2e;">' + n + '</div>').join("") || '<div style="color:#555;">None</div>';
+        document.getElementById("focus-stable").innerHTML =
+          (data.stable || []).map(n => '<div style="padding:4px 0;border-bottom:1px solid #1e1e2e;">' + n + '</div>').join("") || '<div style="color:#555;">None</div>';
+        document.getElementById("focus-complete").innerHTML =
+          (data.complete || []).map(n => '<div style="padding:4px 0;border-bottom:1px solid #1e1e2e;">' + n + '</div>').join("") || '<div style="color:#555;">None</div>';
+      } catch (e) {
+        document.getElementById("focus-summary").textContent = "Focus plan unavailable";
+      }
+    }
+
+    async function loadKeywordBank() {
+      try {
+        const res = await fetch(BASE + "/keyword-bank");
+        const data = await res.json();
+        const keywords = data.keywords || [];
+        if (!keywords.length) {
+          document.getElementById("keyword-bank-list").innerHTML = '<div style="color:#555;font-size:14px;">No active keywords yet.</div>';
+          return;
+        }
+        document.getElementById("keyword-bank-list").innerHTML = keywords.map(k =>
+          '<div class="kw-bar-wrap">' +
+          '<div class="kw-bar-row"><span>' + k.term + '</span><span style="color:#00ffd0;font-weight:bold;">' + k.score + '</span></div>' +
+          '<div class="kw-bar"><div class="kw-fill" style="width:' + k.score + '%;"></div></div></div>'
+        ).join("");
+      } catch (e) {
+        document.getElementById("keyword-bank-list").innerHTML = '<div style="color:#555;font-size:14px;">Keyword bank unavailable.</div>';
+      }
+    }
+
     loadBoard();
+    loadFocusPlan();
+    loadKeywordBank();
     setInterval(loadBoard, 5000);
+    setInterval(loadFocusPlan, 30000);
+    setInterval(loadKeywordBank, 30000);
   </script>
 </body>
 </html>
