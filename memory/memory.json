@@ -1,0 +1,20 @@
+{
+  "entities": {
+    "Alfie Blaze": {
+      "name": "Alfie Blaze",
+      "completeness": 70,
+      "consistency": 90,
+      "external": 50,
+      "freshness": 60,
+      "depth": 65
+    },
+    "NULL THE PROPHET": {
+      "name": "NULL THE PROPHET",
+      "completeness": 50,
+      "consistency": 95,
+      "external": 30,
+      "freshness": 40,
+      "depth": 45
+    }
+  }
+}
