@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAM Leaderboard</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0b0b0f;
+      color: #f5f5f5;
+    }
+    .wrap {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+    }
+    p {
+      color: #aaa;
+      margin: 0 0 24px;
+    }
+    .card {
+      background: #15151d;
+      border: 1px solid #2a2a35;
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .name {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .rank {
+      font-size: 14px;
+      color: #ffd54a;
+    }
+    .score {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      font-size: 13px;
+      color: #cfcfcf;
+    }
+    .meta div {
+      background: #101018;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid #222230;
+    }
+    .status {
+      margin-bottom: 20px;
+      color: #7df9a7;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SAM Live Leaderboard</h1>
+    <p>Real-time entity ranking from your local SAM API.</p>
+    <div class="status" id="status">Loading...</div>
+    <div id="board"></div>
+  </div>
+
+  <script>
+    async function loadBoard() {
+      const status = document.getElementById("status");
+      const board = document.getElementById("board");
+
+      try {
+        const res = await fetch("http://127.0.0.1:8000/leaderboard");
+        const data = await res.json();
+
+        status.textContent = "API live";
+        board.innerHTML = data.map(item => `
+          <div class="card">
+            <div class="top">
+              <div>
+                <div class="name">${item.name}</div>
+                <div class="rank">Rank #${item.rank}</div>
+              </div>
+              <div class="score">Score ${item.score.toFixed(2)}</div>
+            </div>
+            <div class="meta">
+              <div>Completeness<br><strong>${item.completeness}</strong></div>
+              <div>Consistency<br><strong>${item.consistency}</strong></div>
+              <div>External<br><strong>${item.external}</strong></div>
+              <div>Freshness<br><strong>${item.freshness}</strong></div>
+              <div>Depth<br><strong>${item.depth}</strong></div>
+            </div>
+          </div>
+        `).join("");
+      } catch (err) {
+        status.textContent = "API offline or blocked";
+        board.innerHTML = "";
+      }
+    }
+
+    loadBoard();
+    setInterval(loadBoard, 5000);
+  </script>
+</body>
+</html>
