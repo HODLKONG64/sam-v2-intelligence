@@ -6,7 +6,9 @@
       "consistency": 90,
       "external": 50,
       "freshness": 60,
-      "depth": 65
+      "depth": 65,
+      "score": 68.75,
+      "rank": 1
     },
     "NULL THE PROPHET": {
       "name": "NULL THE PROPHET",
@@ -14,7 +16,9 @@
       "consistency": 95,
       "external": 30,
       "freshness": 40,
-      "depth": 45
+      "depth": 45,
+      "score": 55.0,
+      "rank": 2
     }
   }
 }

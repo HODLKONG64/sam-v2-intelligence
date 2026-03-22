@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import json
 import os
+from typing import Any, List
 
 app = FastAPI()
 
@@ -11,6 +12,13 @@ MEMORY_FILE = "memory/memory.json"
 
 class EvaluateInput(BaseModel):
     text: str
+
+
+class SandboxSubmission(BaseModel):
+    entity: str
+    facts: List[str]
+    sources: List[str]
+    submitted_by: str = "api_user"
 
 
 def load_memory():
@@ -501,7 +509,12 @@ def home():
 def status():
     return {
         "status": "SAM API live",
-        "routes": ["/", "/leaderboard", "/status", "/evaluate", "/delete-entry/{name}", "/reset-live-entries"]
+        "routes": [
+            "/", "/leaderboard", "/status",
+            "/evaluate", "/delete-entry/{name}", "/reset-live-entries",
+            "/focus-plan", "/keyword-bank",
+            "/bibles/{name}", "/sandbox/submit",
+        ],
     }
 
 
@@ -591,3 +604,105 @@ def reset_live_entries():
     save_memory(data)
 
     return {"reset": True, "removed": removed, "message": f"Removed {removed} live entries"}
+
+
+# ---------------------------------------------------------------------------
+# New endpoints — Focus Pipeline Layer
+# ---------------------------------------------------------------------------
+
+@app.get("/focus-plan")
+def focus_plan():
+    """
+    Returns the Overmind focus plan so v1 knows which entities to target.
+    Response shape:
+      { "goal": str, "targets": [...], "stable": [...], "complete": [...] }
+    """
+    from intelligence.scoring_engine import score_entity
+    from intelligence.ranking_engine import rank_entities
+    from core.overmind import Overmind
+
+    data = load_memory()
+    entities = list(data.get("entities", {}).values())
+
+    for e in entities:
+        if "score" not in e:
+            e["score"] = score_entity(e)
+
+    ranked = rank_entities(entities)
+    for i, e in enumerate(ranked):
+        e["rank"] = i + 1
+
+    overmind = Overmind()
+    plan = overmind.analyse(data, ranked)
+    return plan
+
+
+@app.get("/keyword-bank")
+def keyword_bank():
+    """
+    Return the full keyword bank with scores, sorted by score descending.
+    """
+    data = load_memory()
+    bank = data.get("keyword_bank", {})
+    sorted_bank = sorted(bank.values(), key=lambda x: x.get("score", 0), reverse=True)
+    return {"keyword_bank": sorted_bank, "total": len(sorted_bank)}
+
+
+@app.get("/bibles/{entity_name}")
+def get_bible(entity_name: str):
+    """
+    Serve a specialist JSON bible for the given entity slug.
+    Returns 404 if no bible exists yet (mention_count < 5).
+    """
+    import re
+
+    def slugify(name: str) -> str:
+        slug = re.sub(r"[^\w\s-]", "", name.lower()).strip()
+        slug = re.sub(r"[\s_]+", "-", slug)
+        slug = re.sub(r"-+", "-", slug).strip("-")
+        if slug.startswith("sam-"):
+            slug = slug[4:]
+        return slug
+
+    slug = slugify(entity_name)
+    path = os.path.join("bibles", f"{slug}.json")
+
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"No bible found for '{entity_name}'. Entity may not have reached 5 mentions yet.")
+
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+@app.post("/sandbox/submit")
+def sandbox_submit(submission: SandboxSubmission):
+    """
+    Accept an external contribution and write it to sandbox/incoming/.
+    The ContributionGate will validate and promote it on the next cycle.
+
+    Body:
+      { "entity": str, "facts": [...], "sources": [...], "submitted_by": str }
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    os.makedirs(os.path.join("sandbox", "incoming"), exist_ok=True)
+
+    payload = {
+        "entity": submission.entity,
+        "facts": submission.facts,
+        "sources": submission.sources,
+        "submitted_by": submission.submitted_by,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    filename = f"{uuid.uuid4().hex}.json"
+    path = os.path.join("sandbox", "incoming", filename)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+
+    return {
+        "queued": True,
+        "file": filename,
+        "message": "Submission queued for validation. Will be processed on next cycle.",
+    }
