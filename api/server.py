@@ -3,6 +3,10 @@ import json
 
 app = FastAPI()
 
+@app.get("/")
+def home():
+    return {"status": "SAM API live", "routes": ["/leaderboard"]}
+
 @app.get("/leaderboard")
 def leaderboard():
     with open("memory/memory.json") as f:
