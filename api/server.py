@@ -4,141 +4,144 @@ import json
 
 app = FastAPI()
 
+
+# -------------------------------
+# FRONTEND (LIVE DASHBOARD)
+# -------------------------------
 HTML_PAGE = """
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SAM Leaderboard</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #0b0b0f;
-      color: #f5f5f5;
-    }
-    .wrap {
-      max-width: 900px;
-      margin: 40px auto;
-      padding: 20px;
-    }
-    h1 {
-      margin: 0 0 8px;
-      font-size: 32px;
-    }
-    p {
-      color: #aaa;
-      margin: 0 0 24px;
-    }
-    .card {
-      background: #15151d;
-      border: 1px solid #2a2a35;
-      border-radius: 14px;
-      padding: 16px;
-      margin-bottom: 14px;
-    }
-    .top {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .name {
-      font-size: 20px;
-      font-weight: 700;
-    }
-    .rank {
-      font-size: 14px;
-      color: #ffd54a;
-    }
-    .score {
-      font-size: 18px;
-      font-weight: 700;
-    }
-    .meta {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 10px;
-      font-size: 13px;
-      color: #cfcfcf;
-    }
-    .meta div {
-      background: #101018;
-      padding: 10px;
-      border-radius: 10px;
-      border: 1px solid #222230;
-    }
-    .status {
-      margin-bottom: 20px;
-      color: #7df9a7;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <title>SAM Live Leaderboard</title>
+    <style>
+        body {
+            background: #0b0b0f;
+            color: #f5f5f5;
+            font-family: Arial, sans-serif;
+            padding: 30px;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .sub {
+            color: #aaa;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: #15151d;
+            border: 1px solid #2a2a35;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .rank {
+            color: #ffd54a;
+            font-weight: bold;
+        }
+
+        .bar {
+            height: 10px;
+            border-radius: 5px;
+            background: #333;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            overflow: hidden;
+        }
+
+        .fill {
+            height: 100%;
+            border-radius: 5px;
+        }
+    </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>SAM Live Leaderboard</h1>
-    <p>Real-time entity ranking from your local SAM API.</p>
-    <div class="status" id="status">Loading...</div>
-    <div id="board"></div>
-  </div>
 
-  <script>
-    async function loadBoard() {
-      const status = document.getElementById("status");
-      const board = document.getElementById("board");
+<h1>SAM LIVE LEADERBOARD</h1>
+<div class="sub">Live entity scoring from your local SAM system</div>
 
-      try {
-        const res = await fetch("/leaderboard");
-        const data = await res.json();
+<div id="board">Loading...</div>
 
-        status.textContent = "API live";
-        board.innerHTML = data.map(item => `
-          <div class="card">
-            <div class="top">
-              <div>
-                <div class="name">${item.name}</div>
-                <div class="rank">Rank #${item.rank}</div>
-              </div>
-              <div class="score">Score ${item.score.toFixed(2)}</div>
-            </div>
-            <div class="meta">
-              <div>Completeness<br><strong>${item.completeness}</strong></div>
-              <div>Consistency<br><strong>${item.consistency}</strong></div>
-              <div>External<br><strong>${item.external}</strong></div>
-              <div>Freshness<br><strong>${item.freshness}</strong></div>
-              <div>Depth<br><strong>${item.depth}</strong></div>
-            </div>
-          </div>
-        `).join("");
-      } catch (err) {
-        status.textContent = "API offline";
-        board.innerHTML = "";
-      }
-    }
+<script>
+async function loadBoard() {
+    const res = await fetch('/leaderboard');
+    const data = await res.json();
 
-    loadBoard();
-    setInterval(loadBoard, 5000);
-  </script>
+    document.getElementById('board').innerHTML = data.map(e => `
+        <div class="card">
+            <div class="rank">#${e.rank} - ${e.name}</div>
+            <div><strong>Overall Score: ${e.score.toFixed(2)}</strong></div>
+
+            <div>Completeness: ${e.completeness}</div>
+            <div class="bar"><div class="fill" style="width:${e.completeness}%; background:#4caf50;"></div></div>
+
+            <div>Consistency: ${e.consistency}</div>
+            <div class="bar"><div class="fill" style="width:${e.consistency}%; background:#2196f3;"></div></div>
+
+            <div>External: ${e.external}</div>
+            <div class="bar"><div class="fill" style="width:${e.external}%; background:#ff9800;"></div></div>
+
+            <div>Freshness: ${e.freshness}</div>
+            <div class="bar"><div class="fill" style="width:${e.freshness}%; background:#e91e63;"></div></div>
+
+            <div>Depth: ${e.depth}</div>
+            <div class="bar"><div class="fill" style="width:${e.depth}%; background:#9c27b0;"></div></div>
+        </div>
+    `).join('');
+}
+
+// auto refresh every 2 seconds
+setInterval(loadBoard, 2000);
+loadBoard();
+</script>
+
 </body>
 </html>
 """
 
+
+# -------------------------------
+# ROOT (LOAD UI)
+# -------------------------------
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTML_PAGE
 
-@app.get("/status")
-def status():
-    return {"status": "SAM API live", "routes": ["/", "/leaderboard", "/status"]}
 
+# -------------------------------
+# LEADERBOARD API
+# -------------------------------
 @app.get("/leaderboard")
 def leaderboard():
     with open("memory/memory.json") as f:
         data = json.load(f)
 
     entities = list(data["entities"].values())
+
     ranked = sorted(entities, key=lambda x: x["score"], reverse=True)
 
+    # add rank numbers
+    for i, e in enumerate(ranked):
+        e["rank"] = i + 1
+
     return ranked
+
+
+# -------------------------------
+# EVALUATION API (NEW)
+# -------------------------------
+@app.post("/evaluate")
+def evaluate(input_data: dict):
+    text = input_data.get("text", "")
+
+    # basic scoring logic (placeholder)
+    score = len(text) % 100
+
+    return {
+        "input": text,
+        "score": score
+    }
