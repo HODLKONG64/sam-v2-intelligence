@@ -177,18 +177,27 @@ HTML_PAGE = '''
       display: flex;
       gap: 12px;
       margin-top: 12px;
+      flex-wrap: wrap;
     }
 
     button {
       border: none;
       border-radius: 12px;
-      background: linear-gradient(90deg, #00ffd0, #1ea7ff);
-      color: #061018;
       padding: 14px 18px;
       font-weight: bold;
       cursor: pointer;
       min-width: 160px;
       font-size: 15px;
+    }
+
+    .btn-main {
+      background: linear-gradient(90deg, #00ffd0, #1ea7ff);
+      color: #061018;
+    }
+
+    .btn-danger {
+      background: linear-gradient(90deg, #ff3b7a, #ff7b00);
+      color: #fff;
     }
 
     .eval-result {
@@ -273,6 +282,22 @@ HTML_PAGE = '''
       font-weight: bold;
     }
 
+    .card-actions {
+      margin-top: 14px;
+    }
+
+    .mini-btn {
+      border: 1px solid #3b3144;
+      background: #171722;
+      color: #ff8fb3;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      min-width: 0;
+    }
+
     .legend {
       display: flex;
       gap: 14px;
@@ -320,7 +345,8 @@ HTML_PAGE = '''
         <h2>Evaluate New Input</h2>
         <textarea id="eval-text" placeholder="Paste text here."></textarea>
         <div class="form-row">
-          <button onclick="submitEvaluation()">Evaluate & Save</button>
+          <button class="btn-main" onclick="submitEvaluation()">Evaluate & Save</button>
+          <button class="btn-danger" onclick="resetLiveEntries()">Reset Live Entries</button>
         </div>
         <div class="eval-result" id="eval-result"></div>
       </div>
@@ -398,12 +424,17 @@ HTML_PAGE = '''
         html += '<div class="bar-row"><div class="label">External: ' + e.external + '</div>' + bar(e.external, '#ff9800') + '</div>';
         html += '<div class="bar-row"><div class="label">Freshness: ' + e.freshness + '</div>' + bar(e.freshness, '#ff1d73') + '</div>';
         html += '<div class="bar-row"><div class="label">Depth: ' + e.depth + '</div>' + bar(e.depth, '#a93ad8') + '</div>';
+
+        if (e.is_live_submission) {
+          html += '<div class="card-actions"><button class="mini-btn" onclick="deleteEntry(' + JSON.stringify(e.name) + ')">Delete Entry</button></div>';
+        }
+
         html += '</div>';
       }
 
       document.getElementById("board").innerHTML = html;
       document.getElementById("stat-entities").textContent = data.length;
-      document.getElementById("stat-top").textContent = topScore.toFixed(2);
+      document.getElementById("stat-top").textContent = data.length ? topScore.toFixed(2) : "0";
       document.getElementById("stat-avg").textContent = data.length ? (totalScore / data.length).toFixed(2) : "0";
       document.getElementById("stat-submissions").textContent = savedCount;
     }
@@ -429,6 +460,30 @@ HTML_PAGE = '''
       loadBoard();
     }
 
+    async function deleteEntry(name) {
+      const result = document.getElementById("eval-result");
+
+      const res = await fetch("/delete-entry/" + encodeURIComponent(name), {
+        method: "DELETE"
+      });
+
+      const data = await res.json();
+      result.textContent = data.message;
+      loadBoard();
+    }
+
+    async function resetLiveEntries() {
+      const result = document.getElementById("eval-result");
+
+      const res = await fetch("/reset-live-entries", {
+        method: "POST"
+      });
+
+      const data = await res.json();
+      result.textContent = data.message;
+      loadBoard();
+    }
+
     loadBoard();
     setInterval(loadBoard, 2000);
   </script>
@@ -444,7 +499,10 @@ def home():
 
 @app.get("/status")
 def status():
-    return {"status": "SAM API live", "routes": ["/", "/leaderboard", "/status", "/evaluate"]}
+    return {
+        "status": "SAM API live",
+        "routes": ["/", "/leaderboard", "/status", "/evaluate", "/delete-entry/{name}", "/reset-live-entries"]
+    }
 
 
 @app.get("/leaderboard")
@@ -495,3 +553,41 @@ def evaluate(input_data: EvaluateInput):
         "score": score,
         "saved": True
     }
+
+
+@app.delete("/delete-entry/{name}")
+def delete_entry(name: str):
+    data = load_memory()
+    entities = data.get("entities", {})
+
+    if name not in entities:
+        return {"deleted": False, "message": f"Entry not found: {name}"}
+
+    if not entities[name].get("is_live_submission"):
+        return {"deleted": False, "message": f"Refused. Not a live submission: {name}"}
+
+    del entities[name]
+    data["entities"] = entities
+    save_memory(data)
+
+    return {"deleted": True, "message": f"Deleted: {name}"}
+
+
+@app.post("/reset-live-entries")
+def reset_live_entries():
+    data = load_memory()
+    entities = data.get("entities", {})
+
+    keep = {}
+    removed = 0
+
+    for name, entry in entities.items():
+      if entry.get("is_live_submission"):
+          removed += 1
+      else:
+          keep[name] = entry
+
+    data["entities"] = keep
+    save_memory(data)
+
+    return {"reset": True, "removed": removed, "message": f"Removed {removed} live entries"}
