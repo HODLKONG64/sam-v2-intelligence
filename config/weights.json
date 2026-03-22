@@ -1,0 +1,7 @@
+{
+  "completeness": 0.25,
+  "consistency": 0.25,
+  "external": 0.2,
+  "freshness": 0.15,
+  "depth": 0.15
+}
