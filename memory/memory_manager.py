@@ -58,8 +58,19 @@ def _empty_memory() -> dict:
             "WEB_UNVERIFIED": {},
         },
         "keyword_bank": {},
+        "crawl_snapshots": {},
         "bibles": {},
         "latest_focus_plan": {},
+        "crawl_schedule": {},
+        "spam_list": {
+            "domains": [],
+            "words": ["darren - scam", "darren scam", " rug ", "scam"],
+        },
+        "error_ledger": {
+            "unsolved": [],
+            "solved": [],
+            "gigga_x_learnings": [],
+        },
         "delivery": {
             "telegram": {
                 "posted_ids": [],
@@ -74,19 +85,14 @@ def _empty_memory() -> dict:
     }
 
 
-def _merge_defaults(data: dict) -> dict:
-    base = _empty_memory()
-    for key, value in base.items():
+def _merge_defaults(data: dict, defaults: dict | None = None) -> dict:
+    defaults = defaults or _empty_memory()
+    for key, value in defaults.items():
         if key not in data:
             data[key] = value
-        elif isinstance(value, dict):
-            for sub_key, sub_val in value.items():
-                if sub_key not in data[key]:
-                    data[key][sub_key] = sub_val
-                elif isinstance(sub_val, dict):
-                    for sub_sub_key, sub_sub_val in sub_val.items():
-                        if sub_sub_key not in data[key][sub_key]:
-                            data[key][sub_key][sub_sub_key] = sub_sub_val
+            continue
+        if isinstance(value, dict) and isinstance(data.get(key), dict):
+            _merge_defaults(data[key], value)
     return data
 
 
