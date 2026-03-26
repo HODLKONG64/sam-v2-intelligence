@@ -7,8 +7,13 @@ import os
 import re
 import uuid
 
-from memory.memory_manager import load_memory as mm_load_memory, get_active_keywords
+from memory.memory_manager import (
+    load_memory as mm_load_memory,
+    save_memory as mm_save_memory,
+    get_active_keywords,
+)
 from core.overmind import Overmind
+from intelligence.scoring_engine import score_entity
 
 app = FastAPI()
 
@@ -27,15 +32,63 @@ class SandboxSubmission(BaseModel):
 
 
 def load_memory():
-    if not os.path.exists(MEMORY_FILE):
-        return {"entities": {}}
-    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    return mm_load_memory()
 
 
 def save_memory(data):
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    mm_save_memory(data)
+
+
+def _iter_entities(memory: dict):
+    facts = memory.get("facts", {})
+    if not isinstance(facts, dict):
+        return
+
+    for category, entities in facts.items():
+        if not isinstance(entities, dict):
+            continue
+        for name, data in entities.items():
+            if not isinstance(data, dict):
+                continue
+            yield category, name, data
+
+
+def _flatten_leaderboard(memory: dict):
+    rows = []
+    rankable = []
+
+    for category, name, data in _iter_entities(memory):
+        score = score_entity(data, category=category, name=name)
+        facts = data.get("all_facts") or data.get("facts") or []
+        if isinstance(facts, dict):
+            facts = list(facts.values())
+        fact_count = len(facts) if isinstance(facts, list) else 0
+
+        completeness = min(100, max(10, fact_count * 8))
+        consistency = min(100, max(10, int(score)))
+        external = min(100, len(data.get("source_urls", []) or []) * 20)
+        freshness = 100 if data.get("dirty", False) else 70
+        depth = min(100, max(10, len(str(data.get("lore_details", "") or "")) // 12))
+
+        rankable.append({
+            "name": name,
+            "category": category,
+            "score": float(score),
+            "completeness": completeness,
+            "consistency": consistency,
+            "external": external,
+            "freshness": freshness,
+            "depth": depth,
+            "is_live_submission": bool(data.get("is_live_submission", False)),
+        })
+
+    rankable.sort(key=lambda x: x["score"], reverse=True)
+
+    for i, row in enumerate(rankable, start=1):
+        row["rank"] = i
+        rows.append(row)
+
+    return rows
 
 
 HTML_PAGE = '''
@@ -583,20 +636,14 @@ def home():
 def status():
     return {
         "status": "SAM API live",
-        "routes": ["/", "/leaderboard", "/status", "/evaluate", "/delete-entry/{name}", "/reset-live-entries"]
+        "routes": ["/", "/leaderboard", "/status", "/evaluate", "/delete-entry/{name}", "/reset-live-entries", "/focus-plan", "/keyword-bank", "/bibles/{entity_name}"]
     }
 
 
 @app.get("/leaderboard")
 def leaderboard():
-    data = load_memory()
-    entities = list(data.get("entities", {}).values())
-    ranked = sorted(entities, key=lambda x: x["score"], reverse=True)
-
-    for i, e in enumerate(ranked):
-        e["rank"] = i + 1
-
-    return ranked
+    memory = load_memory()
+    return _flatten_leaderboard(memory)
 
 
 @app.post("/evaluate")
@@ -604,11 +651,12 @@ def evaluate(input_data: EvaluateInput):
     text = input_data.text.strip()
     words = text.split()
 
-    data = load_memory()
-    entities = data.get("entities", {})
+    memory = load_memory()
+    facts = memory.setdefault("facts", {})
+    concepts = facts.setdefault("mechanics", {})
 
     next_num = 1
-    while f"LIVE ENTRY {next_num}" in entities:
+    while f"LIVE ENTRY {next_num}" in concepts:
         next_num += 1
 
     name = f"LIVE ENTRY {next_num}"
@@ -616,18 +664,19 @@ def evaluate(input_data: EvaluateInput):
 
     entry = {
         "name": name,
-        "completeness": min(100, max(10, len(words) * 4)),
-        "consistency": min(100, 40 + (len(text) % 60)),
-        "external": min(100, 20 + (len(words) % 50)),
-        "freshness": 100,
-        "depth": min(100, 15 + (len(text) % 70)),
-        "score": score,
-        "is_live_submission": True
+        "type": "live_submission",
+        "role_description": text[:240],
+        "lore_details": text,
+        "all_facts": [text] if text else [],
+        "source_urls": [],
+        "mention_count": 1,
+        "dirty": True,
+        "is_live_submission": True,
+        "_score": score,
     }
 
-    entities[name] = entry
-    data["entities"] = entities
-    save_memory(data)
+    concepts[name] = entry
+    save_memory(memory)
 
     return {
         "name": name,
@@ -639,38 +688,39 @@ def evaluate(input_data: EvaluateInput):
 
 @app.delete("/delete-entry/{name}")
 def delete_entry(name: str):
-    data = load_memory()
-    entities = data.get("entities", {})
+    memory = load_memory()
+    facts = memory.get("facts", {})
+    concepts = facts.get("mechanics", {})
 
-    if name not in entities:
+    if name not in concepts:
         return {"deleted": False, "message": f"Entry not found: {name}"}
 
-    if not entities[name].get("is_live_submission"):
+    if not concepts[name].get("is_live_submission"):
         return {"deleted": False, "message": f"Refused. Not a live submission: {name}"}
 
-    del entities[name]
-    data["entities"] = entities
-    save_memory(data)
+    del concepts[name]
+    save_memory(memory)
 
     return {"deleted": True, "message": f"Deleted: {name}"}
 
 
 @app.post("/reset-live-entries")
 def reset_live_entries():
-    data = load_memory()
-    entities = data.get("entities", {})
+    memory = load_memory()
+    facts = memory.get("facts", {})
+    concepts = facts.get("mechanics", {})
 
     keep = {}
     removed = 0
 
-    for name, entry in entities.items():
-      if entry.get("is_live_submission"):
-          removed += 1
-      else:
-          keep[name] = entry
+    for name, entry in concepts.items():
+        if entry.get("is_live_submission"):
+            removed += 1
+        else:
+            keep[name] = entry
 
-    data["entities"] = keep
-    save_memory(data)
+    facts["mechanics"] = keep
+    save_memory(memory)
 
     return {"reset": True, "removed": removed, "message": f"Removed {removed} live entries"}
 
@@ -705,6 +755,6 @@ async def sandbox_submit(submission: SandboxSubmission):
     os.makedirs("sandbox/incoming", exist_ok=True)
     submission_id = str(uuid.uuid4())
     path = f"sandbox/incoming/{submission_id}.json"
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(submission.dict(), f, indent=2)
     return {"submission_id": submission_id, "status": "queued", "message": "Submission accepted for validation"}
