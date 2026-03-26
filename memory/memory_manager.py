@@ -41,10 +41,12 @@ def _empty_memory() -> dict:
             "armies": {},
             "lore_locations": {},
             "mechanics": {},
+            "mechanics_games": {},
             "tokens": {},
             "games": {},
             "events": {},
             "brands": {},
+            "brands_collections": {},
         },
         "external_facts": {
             "CONFIRMED": {},
@@ -135,7 +137,7 @@ def add_keyword(memory: dict, term: str, initial_score: int = 50):
             "term": term,
             "score": initial_score,
             "last_hit": datetime.now(timezone.utc).isoformat(),
-            "hit_count": 1
+            "hit_count": 1,
         }
 
 
@@ -161,5 +163,5 @@ def get_active_keywords(memory: dict, min_score: int = 10) -> list:
     return sorted(
         [{"term": k, **v} for k, v in bank.items() if v.get("score", 0) >= min_score],
         key=lambda x: x["score"],
-        reverse=True
+        reverse=True,
     )
