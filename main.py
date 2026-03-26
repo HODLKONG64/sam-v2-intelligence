@@ -2,7 +2,7 @@ import os
 import datetime
 from datetime import timezone
 
-from memory.memory_manager import load_memory, save_memory, decay_keywords
+from memory.memory_manager import load_memory, save_memory
 from core.overmind import Overmind
 from intelligence.scoring_engine import score_entity
 
@@ -22,7 +22,11 @@ def _iter_entities(memory: dict):
 
 
 async def run_cycle():
-    """Main v2 intelligence cycle: score → classify → decay → save."""
+    """Main v2 intelligence cycle: score → classify → save.
+    
+    Note: keyword decay is owned exclusively by HAY-MUM (sam-master-agent.py).
+    v2 does NOT decay keywords to avoid double-decay of shared memory.
+    """
     print("[v2] Starting intelligence cycle...")
     memory = load_memory()
 
@@ -35,7 +39,6 @@ async def run_cycle():
     memory["latest_focus_plan"] = plan
     memory["latest_focus_plan"]["generated_at"] = datetime.datetime.now(timezone.utc).isoformat()
 
-    decay_keywords(memory)
     save_memory(memory)
 
     print(
