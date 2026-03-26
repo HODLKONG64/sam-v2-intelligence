@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import List
+import datetime
 import json
 import os
 import re
@@ -13,6 +14,7 @@ from memory.memory_manager import (
     get_active_keywords,
 )
 from core.overmind import Overmind
+from core.slug_utils import make_slug
 from intelligence.scoring_engine import score_entity
 
 app = FastAPI()
@@ -643,7 +645,23 @@ def status():
 @app.get("/leaderboard")
 def leaderboard():
     memory = load_memory()
-    return _flatten_leaderboard(memory)
+    rows = _flatten_leaderboard(memory)
+    leaderboard_items = []
+    for row in rows:
+        slug = make_slug(row["name"])
+        leaderboard_items.append({
+            "rank": row["rank"],
+            "slug": slug,
+            "label": row["name"],
+            "score": row["score"],
+            "category": row["category"],
+            "wiki_url": f"/wiki/{slug}.html",
+        })
+    return {
+        "leaderboard": leaderboard_items,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "total": len(leaderboard_items),
+    }
 
 
 @app.post("/evaluate")
@@ -744,7 +762,7 @@ async def keyword_bank():
 async def get_bible(entity_name: str):
     memory = mm_load_memory()
     bibles = memory.get("bibles", {})
-    slug = re.sub(r'[^a-z0-9-]', '-', entity_name.lower()).strip('-')
+    slug = make_slug(entity_name)
     if slug not in bibles:
         raise HTTPException(status_code=404, detail=f"No bible found for '{entity_name}'. Entity may have fewer than 5 mentions.")
     return bibles[slug]
