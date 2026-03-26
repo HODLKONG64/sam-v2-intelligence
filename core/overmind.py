@@ -1,5 +1,4 @@
 from intelligence.scoring_engine import score_entity
-from intelligence.ranking_engine import rank_entities
 
 
 class Overmind:
@@ -11,20 +10,47 @@ class Overmind:
     def analyse(self, memory: dict) -> dict:
         """Classify all entities into TARGETS / STABLE / COMPLETE tiers."""
         facts = memory.get("facts", {})
-        if not facts:
-            return {"targets": [], "stable": [], "complete": []}
+        if not isinstance(facts, dict) or not facts:
+            return {
+                "targets": [],
+                "stable": [],
+                "complete": [],
+                "scores": {},
+                "total_entities": 0,
+                "target_count": 0,
+            }
 
-        # Score all entities
         scored = []
-        for name, data in facts.items():
-            s = score_entity(data)
-            scored.append({"name": name, "score": s, "data": data})
 
-        # Sort ascending by score (lowest = needs most work = TARGET)
+        for category, entities in facts.items():
+            if not isinstance(entities, dict):
+                continue
+
+            for name, data in entities.items():
+                if not isinstance(data, dict):
+                    continue
+
+                s = score_entity(data, category=category, name=name)
+                scored.append({
+                    "name": name,
+                    "category": category,
+                    "score": s,
+                    "data": data,
+                })
+
+        if not scored:
+            return {
+                "targets": [],
+                "stable": [],
+                "complete": [],
+                "scores": {},
+                "total_entities": 0,
+                "target_count": 0,
+            }
+
         scored.sort(key=lambda x: x["score"])
         total = len(scored)
 
-        # Calculate target count
         target_count = max(
             self.target_min,
             min(self.target_max, int(total * self.target_fraction))
@@ -35,19 +61,29 @@ class Overmind:
         complete_raw = scored[-complete_count:] if complete_count > 0 else []
         stable_raw = scored[target_count:total - complete_count] if complete_count > 0 else scored[target_count:]
 
-        # Also pull in newly discovered or recently updated entities as targets
         recently_updated = [
             e for e in stable_raw + complete_raw
             if e["data"].get("dirty", False) or e["data"].get("mention_count", 0) <= 1
         ]
 
-        all_targets = list({e["name"] for e in targets_raw + recently_updated})
+        all_targets = list({f'{e["category"]}:{e["name"]}' for e in targets_raw + recently_updated})
+
+        stable = [
+            f'{e["category"]}:{e["name"]}'
+            for e in stable_raw
+            if f'{e["category"]}:{e["name"]}' not in all_targets
+        ]
+        complete = [
+            f'{e["category"]}:{e["name"]}'
+            for e in complete_raw
+            if f'{e["category"]}:{e["name"]}' not in all_targets
+        ]
 
         return {
             "targets": all_targets,
-            "stable": [e["name"] for e in stable_raw if e["name"] not in all_targets],
-            "complete": [e["name"] for e in complete_raw if e["name"] not in all_targets],
-            "scores": {e["name"]: e["score"] for e in scored},
+            "stable": stable,
+            "complete": complete,
+            "scores": {f'{e["category"]}:{e["name"]}': e["score"] for e in scored},
             "total_entities": total,
-            "target_count": len(all_targets)
+            "target_count": len(all_targets),
         }
